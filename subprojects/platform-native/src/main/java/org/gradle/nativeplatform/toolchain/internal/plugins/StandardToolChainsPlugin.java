@@ -20,6 +20,7 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.nativeplatform.toolchain.plugins.ClangCompilerPlugin;
 import org.gradle.nativeplatform.toolchain.plugins.GccCompilerPlugin;
+import org.gradle.nativeplatform.toolchain.plugins.IarArmCompilerPlugin;
 import org.gradle.nativeplatform.toolchain.plugins.MicrosoftVisualCppCompilerPlugin;
 
 /**
@@ -28,6 +29,7 @@ import org.gradle.nativeplatform.toolchain.plugins.MicrosoftVisualCppCompilerPlu
 public class StandardToolChainsPlugin implements Plugin<Project> {
     @Override
     public void apply(Project project) {
+        project.getPluginManager().apply(IarArmCompilerPlugin.class);
         project.getPluginManager().apply(MicrosoftVisualCppCompilerPlugin.class);
         project.getPluginManager().apply(GccCompilerPlugin.class);
         project.getPluginManager().apply(ClangCompilerPlugin.class);

@@ -28,14 +28,19 @@ import org.gradle.internal.os.OperatingSystem;
 import org.gradle.nativeplatform.platform.internal.DefaultNativePlatform;
 import org.gradle.nativeplatform.toolchain.Clang;
 import org.gradle.nativeplatform.toolchain.Gcc;
+import org.gradle.nativeplatform.toolchain.IarArm;
 import org.gradle.nativeplatform.toolchain.VisualCpp;
 import org.gradle.nativeplatform.toolchain.internal.gcc.version.GccVersionDeterminer;
 import org.gradle.nativeplatform.toolchain.internal.gcc.version.GccVersionResult;
+import org.gradle.nativeplatform.toolchain.internal.iar.DefaultIarWorkbenchLocator;
+import org.gradle.nativeplatform.toolchain.internal.iar.IarWorkbenchInstall;
+import org.gradle.nativeplatform.toolchain.internal.iar.IarWorkbenchLocator;
 import org.gradle.nativeplatform.toolchain.internal.msvcpp.DefaultVisualStudioLocator;
 import org.gradle.nativeplatform.toolchain.internal.msvcpp.VisualStudioInstall;
 import org.gradle.nativeplatform.toolchain.internal.msvcpp.VisualStudioLocator;
 import org.gradle.nativeplatform.toolchain.plugins.ClangCompilerPlugin;
 import org.gradle.nativeplatform.toolchain.plugins.GccCompilerPlugin;
+import org.gradle.nativeplatform.toolchain.plugins.IarArmCompilerPlugin;
 import org.gradle.nativeplatform.toolchain.plugins.MicrosoftVisualCppCompilerPlugin;
 import org.gradle.test.fixtures.file.TestFile;
 import org.gradle.testfixtures.internal.NativeServicesTestFixture;
@@ -49,6 +54,7 @@ import java.util.List;
 
 import static org.gradle.nativeplatform.fixtures.VisualStudioVersion.VISUALSTUDIO_2012;
 import static org.gradle.nativeplatform.fixtures.VisualStudioVersion.VISUALSTUDIO_2013;
+import static org.gradle.nativeplatform.fixtures.IarWorkbenchVersion.IAR_WORKBENCH_5;
 
 public class AvailableToolChains {
     private static List<ToolChainCandidate> toolChains;
@@ -90,6 +96,7 @@ public class AvailableToolChains {
             List<ToolChainCandidate> compilers = new ArrayList<ToolChainCandidate>();
             if (OperatingSystem.current().isWindows()) {
                 compilers.addAll(findVisualCpps());
+                compilers.addAll(findIarArms());
                 compilers.add(findMinGW());
                 compilers.add(findCygwin());
             } else {
@@ -107,6 +114,45 @@ public class AvailableToolChains {
             return new InstalledClang();
         }
         return new UnavailableToolChain("clang");
+    }
+
+    static private boolean isTestableIarWorkbenchVersion(final VersionNumber version) {
+        return getIarWorkbenchVersion(version) != null;
+    }
+
+    static private IarWorkbenchVersion getIarWorkbenchVersion(final VersionNumber version) {
+        return CollectionUtils.findFirst(IarWorkbenchVersion.values(), new Spec<IarWorkbenchVersion>() {
+            @Override
+            public boolean isSatisfiedBy(IarWorkbenchVersion candidate) {
+                return candidate.getIarArmVersion().equals(version);
+            }
+        });
+    }
+
+    static private List<ToolChainCandidate> findIarArms() {
+        // Search in the standard installation locations
+        IarWorkbenchLocator iarWorkbenchLocator = new DefaultIarWorkbenchLocator(OperatingSystem.current(),
+            NativeServicesTestFixture.getInstance().get(WindowsRegistry.class),
+            NativeServicesTestFixture.getInstance().get(SystemInfo.class));
+
+        final List<IarWorkbenchLocator.SearchResult> searchResults = iarWorkbenchLocator.locateAllIarWorkbenchVersions();
+
+        List<ToolChainCandidate> toolChains = Lists.newArrayList();
+
+        for (IarWorkbenchLocator.SearchResult searchResult : searchResults) {
+            if (searchResult.isAvailable()) {
+                IarWorkbenchInstall install = searchResult.getIarWorkbench();
+                if (isTestableIarWorkbenchVersion(install.getVersion())) {
+                    toolChains.add(new InstalledIarArm(getIarWorkbenchVersion(install.getVersion())).withInstall(install));
+                }
+            }
+        }
+
+        if (toolChains.isEmpty()) {
+            toolChains.add(new UnavailableToolChain("IAR ARM"));
+        }
+
+        return toolChains;
     }
 
     static private boolean isTestableVisualStudioVersion(final VersionNumber version) {
@@ -406,6 +452,81 @@ public class AvailableToolChains {
             if ("gcc cygwin".equals(getDisplayName())) {
                 return "cygwin";
             }
+            return "UNKNOWN";
+        }
+    }
+
+    public static class InstalledIarArm extends InstalledToolChain {
+        private VersionNumber version;
+        private File installDir;
+
+        public InstalledIarArm(IarWorkbenchVersion version) {
+            super("IAR ARM " + version.getVersion() + " (" + version.getIarArmVersion().toString() + ")");
+        }
+
+        @Override
+        public String getId() {
+            return "iarArm";
+        }
+
+        public InstalledIarArm withInstall(IarWorkbenchInstall install) {
+            DefaultNativePlatform targetPlatform = new DefaultNativePlatform("default");
+            installDir = install.getIarWorkbenchDir();
+            version = install.getVersion();
+            pathEntries.add(install.getIarArm().getCommonPath(targetPlatform));
+            return this;
+        }
+
+        @Override
+        public boolean meets(ToolChainRequirement requirement) {
+            switch (requirement) {
+                case AVAILABLE:
+                case IARARM:
+                    return true;
+                case IARWORKBENCH_5_OR_NEWER:
+                    return version.compareTo(IAR_WORKBENCH_5.getIarArmVersion()) >= 0;
+                default:
+                    return false;
+            }
+        }
+
+        @Override
+        public String getBuildScriptConfig() {
+            String config = String.format("%s(%s)\n", getId(), getImplementationClass());
+            if (installDir != null) {
+                config += String.format("%s.installDir = file('%s')", getId(), installDir.toURI());
+            }
+            return config;
+        }
+
+        public String getImplementationClass() {
+            return IarArm.class.getSimpleName();
+        }
+
+        public String getInstanceDisplayName() {
+            return String.format("Tool chain '%s' (IAR Workbench)", getId());
+        }
+
+        @Override
+        public String getPluginClass() {
+            return IarArmCompilerPlugin.class.getSimpleName();
+        }
+
+        public boolean isIarArm() {
+            return true;
+        }
+
+        public VersionNumber getVersion() {
+            return version;
+        }
+
+        @Override
+        public TestFile objectFile(Object path) {
+            return new TestFile(path.toString() + ".obj");
+        }
+
+        @Override
+        public String getUnitTestPlatform() {
             return "UNKNOWN";
         }
     }
