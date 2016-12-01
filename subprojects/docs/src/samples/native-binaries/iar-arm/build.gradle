@@ -1,0 +1,47 @@
+task wrapper(type: Wrapper) {
+    distributionUrl 'https://github.com/alliancels/gradle/releases/download/v3.2.0-RC3-iar-arm/gradle-3.2.0-rc3-iar-arm.zip'
+}
+
+apply plugin: 'c'
+apply plugin: 'assembler'
+
+model {
+    toolChains {
+        iarArm(IarArm) {
+//            installDir "C:\\Program Files (x86)\\IAR Systems\\Embedded Workbench 7.2"
+        }
+    }
+    platforms {
+        arm {
+            architecture "arm"
+        }
+    }
+
+    components {
+        hello(NativeLibrarySpec) {
+            targetPlatform "arm"
+            binaries.withType(SharedLibraryBinarySpec) {
+                buildable = false
+            }
+        }
+    }
+
+    components {
+        main(NativeExecutableSpec) {
+            targetPlatform "arm"
+            sources {
+                c.lib library: 'hello', linkage: 'static'
+            }
+        }
+    }
+}
+
+model {
+    binaries {
+        all {
+            cCompiler.args "-e", "--cpu", "Cortex-M4F", "--fpu", "VFPv4_sp", "--debug"
+            assembler.args "--cpu", "Cortex-M4F", "--fpu", "VFPv4_sp", "-s+", "-r"
+            linker.args "--semihosting"
+        }
+    }
+}
