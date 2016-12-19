@@ -110,6 +110,7 @@ public class IarArmToolChain extends ExtendableToolChain<IarArmPlatformToolChain
         availability.mustBeAvailable(iarWorkbenchSearchResult);
         if (iarWorkbenchSearchResult.isAvailable()) {
             iarArm = iarWorkbenchSearchResult.getIarWorkbench().getIarArm();
+            installDir = iarWorkbenchSearchResult.getIarWorkbench().getIarWorkbenchDir();
         }
     }
 
