@@ -63,39 +63,6 @@ public class UnityPlugin implements Plugin<Project> {
             builder.defaultImplementation(DefaultUnityTestSuiteSpec.class);
         }
 
-        @Mutate
-        public void configureUnityTestSuiteSources(@Each final UnityTestSuiteSpec suite, @Path("buildDir") final File buildDir) {
-            suite.getSources().create(CUNIT_LAUNCHER_SOURCE_SET, CSourceSet.class, new Action<CSourceSet>() {
-                @Override
-                public void execute(CSourceSet launcherSources) {
-                    File baseDir = new File(buildDir, "src/" + suite.getName() + "/cunitLauncher");
-                    launcherSources.getSource().srcDir(new File(baseDir, "c"));
-                    launcherSources.getExportedHeaders().srcDir(new File(baseDir, "headers"));
-                }
-            });
-
-            suite.getSources().withType(CSourceSet.class).named("c", new Action<CSourceSet>() {
-                @Override
-                public void execute(CSourceSet cSourceSet) {
-                    cSourceSet.lib(suite.getSources().get(CUNIT_LAUNCHER_SOURCE_SET));
-                }
-            });
-        }
-
-        @Mutate
-        public void createUnityLauncherTasks(TaskContainer tasks, TestSuiteContainer testSuites) {
-            for (final UnityTestSuiteSpec suite : testSuites.withType(UnityTestSuiteSpec.class).values()) {
-
-                String taskName = suite.getName() + "CUnitLauncher";
-                GenerateUnityLauncher skeletonTask = tasks.create(taskName, GenerateUnityLauncher.class);
-
-                CSourceSet launcherSources = findLauncherSources(suite);
-                skeletonTask.setSourceDir(launcherSources.getSource().getSrcDirs().iterator().next());
-                skeletonTask.setHeaderDir(launcherSources.getExportedHeaders().getSrcDirs().iterator().next());
-                launcherSources.builtBy(skeletonTask);
-            }
-        }
-
         private CSourceSet findLauncherSources(UnityTestSuiteSpec suite) {
             return suite.getSources().withType(CSourceSet.class).get(CUNIT_LAUNCHER_SOURCE_SET);
         }
