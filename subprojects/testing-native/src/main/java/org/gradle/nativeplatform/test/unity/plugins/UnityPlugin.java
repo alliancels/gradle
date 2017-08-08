@@ -16,30 +16,39 @@
 
 package org.gradle.nativeplatform.test.unity.plugins;
 
-import org.gradle.api.Action;
-import org.gradle.api.Incubating;
-import org.gradle.api.Plugin;
-import org.gradle.api.Project;
+import org.gradle.api.*;
 import org.gradle.api.internal.project.taskfactory.ITaskFactory;
-import org.gradle.api.tasks.TaskContainer;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.language.c.CSourceSet;
 import org.gradle.language.c.plugins.CLangPlugin;
 import org.gradle.model.*;
+import org.gradle.nativeplatform.NativeBinarySpec;
+import org.gradle.nativeplatform.NativeExecutableFileSpec;
+import org.gradle.nativeplatform.NativeInstallationSpec;
+import org.gradle.nativeplatform.SharedLibraryBinary;
+import org.gradle.nativeplatform.internal.NativeBinarySpecInternal;
+import org.gradle.nativeplatform.internal.NativeComponents;
+import org.gradle.nativeplatform.internal.resolve.NativeDependencyResolver;
+import org.gradle.nativeplatform.test.NativeTestSuiteSpec;
+import org.gradle.nativeplatform.test.internal.NativeTestSuiteBinarySpecInternal;
 import org.gradle.nativeplatform.test.unity.UnityTestSuiteBinarySpec;
 import org.gradle.nativeplatform.test.unity.UnityTestSuiteSpec;
 import org.gradle.nativeplatform.test.unity.internal.DefaultUnityTestSuiteBinary;
 import org.gradle.nativeplatform.test.unity.internal.DefaultUnityTestSuiteSpec;
-import org.gradle.nativeplatform.test.unity.tasks.GenerateUnityLauncher;
 import org.gradle.nativeplatform.test.plugins.NativeBinariesTestPlugin;
+import org.gradle.nativeplatform.test.unity.tasks.RunUnityTestExecutable;
 import org.gradle.platform.base.ComponentBinaries;
 import org.gradle.platform.base.ComponentType;
 import org.gradle.platform.base.TypeBuilder;
-import org.gradle.testing.base.TestSuiteContainer;
+import org.gradle.platform.base.internal.BinaryNamingScheme;
 
 import java.io.File;
+import java.util.Collection;
 
-import static org.gradle.nativeplatform.test.internal.NativeTestSuites.createNativeTestSuiteBinaries;
+import static org.gradle.nativeplatform.test.internal.NativeTestSuites.testedBinariesWithType;
+
+import static org.gradle.nativeplatform.internal.configure.NativeBinaryRules.executableFileFor;
+import static org.gradle.nativeplatform.internal.configure.NativeBinaryRules.installationDirFor;
 
 /**
  * A plugin that sets up the infrastructure for testing native binaries with Unity.
@@ -78,7 +87,80 @@ public class UnityPlugin implements Plugin<Project> {
                                             @Path("buildDir") final File buildDir,
                                             final ServiceRegistry serviceRegistry,
                                             final ITaskFactory taskFactory) {
-            createNativeTestSuiteBinaries(binaries, testSuite, UnityTestSuiteBinarySpec.class, "CUnitExe", buildDir, serviceRegistry);
+            createUnityTestSuiteBinaries(binaries, testSuite, "UnityExe", buildDir, serviceRegistry);
+        }
+
+        private void createUnityTestSuiteBinaries(ModelMap<UnityTestSuiteBinarySpec> binaries,
+                                                  UnityTestSuiteSpec testSuite,
+                                                  String typeString,
+                                                  final File buildDir,
+                                                  ServiceRegistry serviceRegistry ) {
+            //For each tested binary
+            for (final NativeBinarySpec testedBinary : testedBinariesOf(testSuite)) {
+                //Do not generate binaries for shared libraries
+                if (testedBinary instanceof SharedLibraryBinary) {
+                    continue;
+                }
+                createNativeTestSuiteBinary(binaries, testSuite, typeString, testedBinary, buildDir, serviceRegistry);
+            }
+        }
+
+        private void createNativeTestSuiteBinary(ModelMap<UnityTestSuiteBinarySpec> binaries,
+                                                 UnityTestSuiteSpec testSuite,
+                                                 String typeString,
+                                                 final NativeBinarySpec testedBinary,
+                                                 final File buildDir, ServiceRegistry serviceRegistry) {
+
+            final BinaryNamingScheme namingScheme = namingSchemeFor(testSuite, (NativeBinarySpecInternal) testedBinary, typeString);
+            final NativeDependencyResolver resolver = serviceRegistry.get(NativeDependencyResolver.class);
+
+            binaries.create(namingScheme.getBinaryName(), UnityTestSuiteBinarySpec.class, new Action<UnityTestSuiteBinarySpec>() {
+                @Override
+                public void execute(UnityTestSuiteBinarySpec binary) {
+                    final NativeTestSuiteBinarySpecInternal testBinary = (NativeTestSuiteBinarySpecInternal)binary;
+
+                    //configure the test binary
+                    testBinary.setTestedBinary((NativeBinarySpecInternal) testedBinary);
+                    testBinary.setNamingScheme(namingScheme);
+                    testBinary.setResolver(resolver);
+                    testBinary.setToolChain(testedBinary.getToolChain());
+
+                    //configure the executable
+                    NativeExecutableFileSpec executable = testBinary.getExecutable();
+                    executable.setToolChain(testedBinary.getToolChain());
+                    executable.setFile(executableFileFor(testBinary, buildDir));
+
+                    //configure the install
+                    NativeInstallationSpec installation = testBinary.getInstallation();
+                    installation.setDirectory(installationDirFor(testBinary, buildDir));
+
+                    //create the install, executable, and run tasks
+                    NativeComponents.createInstallTask(testBinary, installation, executable, namingScheme);
+                    NativeComponents.createExecutableTask(testBinary, testBinary.getExecutableFile());
+                    createRunTask(testBinary, namingScheme.getTaskName("run"));
+                }
+            });
+        }
+
+        private static void createRunTask(final NativeTestSuiteBinarySpecInternal testBinary, String name) {
+            testBinary.getTasks().create(name, RunUnityTestExecutable.class, new Action<RunUnityTestExecutable>() {
+                @Override
+                public void execute(RunUnityTestExecutable runTask) {
+                    runTask.setDescription("Runs the " + testBinary);
+                    testBinary.getTasks().add(runTask);
+                }
+            });
+        }
+
+        private Collection<NativeBinarySpec> testedBinariesOf(NativeTestSuiteSpec testSuite) {
+            return testedBinariesWithType(NativeBinarySpec.class, testSuite);
+        }
+
+        private BinaryNamingScheme namingSchemeFor(NativeTestSuiteSpec testSuite, NativeBinarySpecInternal testedBinary, String typeString) {
+            return testedBinary.getNamingScheme()
+                .withComponentName(testSuite.getBaseName())
+                .withBinaryType(typeString)
+                .withRole("executable", true);
         }
     }
 
