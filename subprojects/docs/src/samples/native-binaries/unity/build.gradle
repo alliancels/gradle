@@ -1,0 +1,80 @@
+apply plugin: "c"
+apply plugin: UnityPlugin
+apply plugin: UnityTestInSimulator
+
+//This entire model section is just configuring the IAR toolchain
+model {
+    toolChains {
+        iarArm(IarArm) {
+        }
+    }
+    platforms {
+        arm {
+            architecture "arm"
+        }
+    }
+
+    binaries {
+        all {
+            cCompiler.args "-e", "--cpu", "Cortex-M4F", "--fpu", "VFPv4_sp", "--debug"
+            assembler.args "--cpu", "Cortex-M4F", "--fpu", "VFPv4_sp", "-s+", "-r"
+            linker.args "--semihosting"
+        }
+        withType(SharedLibraryBinarySpec) {
+            buildable = false
+        }
+    }
+}
+
+//This section sets up the simulator for the UnityTestInSimulator plugin
+model{
+    unitySimulator{
+        //defines the path to the simulator executable to be invoked
+        simulatorPath "$project.toolChains.iarArm.installDir/common/bin/CSpyBat.exe".toString()
+
+        //The args property defines all the command line arguments to be passed to the simulator
+        args.add "\"$project.toolChains.iarArm.installDir/arm/bin/armproc.dll\"".toString()
+        args.add "\"$project.toolChains.iarArm.installDir/arm/bin/armsim2.dll\"".toString()
+
+        //Any argument with the value '#EXE' will be substitued with the path to the test executable.
+        args.add "#EXE"
+
+        args.add "--plugin"
+        args.add "\"$project.toolChains.iarArm.installDir/arm/bin/armbat.dll\"".toString()
+        args.add "--plugin"
+        args.add "\"$project.toolChains.iarArm.installDir/common/plugins/CodeCoverage/CodeCoverage.dll\"".toString()
+        args.add "--backend"
+        args.add "-B"
+        args.add "--endian=little"
+        args.add "--cpu=Cortex-M4"
+        args.add "--fpu=VFPv4"
+        args.add "--semihosting"
+    }
+}
+
+model{
+    components {
+        operators(NativeLibrarySpec) {
+            targetPlatform "arm"
+        }
+
+        unity(NativeLibrarySpec){
+            targetPlatform "arm"
+        }
+    }
+
+
+    testSuites {
+        //define our test suite for the operators library
+        operatorsTest(UnityTestSuiteSpec) {
+
+            //each test suite must declare what component it is testing
+            testing $.components.operators
+
+            //Any customization of the test suite sources could be done here
+            sources.c{
+                lib library: 'unity', linkage: 'static'
+            }
+        }
+    }
+}
